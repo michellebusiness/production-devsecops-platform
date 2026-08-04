@@ -1,0 +1,41 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+.terraform.lock.hcl
+
+# Kubernetes secrets
+*-secret.yaml
+secrets.yaml
+
+# IDE
+.vscode/
+.idea/
+
+# Operating system
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test and coverage
+coverage/
+.pytest_cache/
