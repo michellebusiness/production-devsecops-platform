@@ -1,126 +1,18 @@
 import json
-import os
-import time
-from contextlib import asynccontextmanager
 
 import pika
-import redis
-from fastapi import FastAPI, HTTPException
 
-from database import get_database_connection, initialize_database
-from models import OrderCreate, OrderResponse
-
-
-def connect_with_retry(operation, service_name: str, attempts: int = 20):
-    for attempt in range(1, attempts + 1):
-        try:
-            return operation()
-        except Exception as error:
-            print(
-                f"Waiting for {service_name}: "
-                f"attempt {attempt}/{attempts}: {error}"
-            )
-            time.sleep(3)
-
-    raise RuntimeError(f"Could not connect to {service_name}")
-
-
-def get_redis_client() -> redis.Redis:
-    return redis.Redis(
-        host=os.getenv("REDIS_HOST", "redis"),
-        port=int(os.getenv("REDIS_PORT", "6379")),
-        decode_responses=True,
-    )
-
-
-def get_rabbitmq_connection() -> pika.BlockingConnection:
-    credentials = pika.PlainCredentials(
-        os.getenv("RABBITMQ_USER", "orders_user"),
-        os.getenv("RABBITMQ_PASSWORD", "orders_password"),
-    )
-
-    parameters = pika.ConnectionParameters(
-        host=os.getenv("RABBITMQ_HOST", "rabbitmq"),
-        port=int(os.getenv("RABBITMQ_PORT", "5672")),
-        credentials=credentials,
-    )
-
-    return pika.BlockingConnection(parameters)
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    connect_with_retry(lambda: get_redis_client().ping(), "Redis")
-
-    connection = connect_with_retry(
-        get_rabbitmq_connection,
-        "RabbitMQ",
-    )
-
-    channel = connection.channel()
-    channel.queue_declare(queue="orders", durable=True)
-    connection.close()
-
-    yield
-
-
-app = FastAPI(
-    title="Orders API",
-    version="1.0.0",
-    lifespan=lifespan,
+from app.cache.redis_client import get_redis_client
+from app.core.metrics import (
+    application_errors_total,
+    orders_created_total,
 )
+from app.db.database import get_database_connection
+from app.messaging.rabbitmq import get_rabbitmq_connection
+from app.schemas.order import OrderCreate, OrderResponse
 
 
-@app.get("/health")
-def health():
-    return {
-        "status": "healthy",
-        "service": "orders-api",
-    }
-
-
-@app.get("/ready")
-def readiness():
-    checks: dict[str, str] = {}
-
-    try:
-        database_connection = get_database_connection()
-        database_connection.close()
-        checks["postgresql"] = "ready"
-    except Exception as error:
-        checks["postgresql"] = str(error)
-
-    try:
-        get_redis_client().ping()
-        checks["redis"] = "ready"
-    except Exception as error:
-        checks["redis"] = str(error)
-
-    try:
-        rabbitmq_connection = get_rabbitmq_connection()
-        rabbitmq_connection.close()
-        checks["rabbitmq"] = "ready"
-    except Exception as error:
-        checks["rabbitmq"] = str(error)
-
-    if any(value != "ready" for value in checks.values()):
-        raise HTTPException(
-            status_code=503,
-            detail=checks,
-        )
-
-    return {
-        "status": "ready",
-        "dependencies": checks,
-    }
-
-
-@app.post(
-    "/orders",
-    response_model=OrderResponse,
-    status_code=201,
-)
-def create_order(order: OrderCreate):
+def create_order(order: OrderCreate) -> OrderResponse:
     database_connection = get_database_connection()
 
     try:
@@ -147,9 +39,16 @@ def create_order(order: OrderCreate):
             created_order = cursor.fetchone()
 
         database_connection.commit()
+        orders_created_total.inc()
+
     except Exception:
+        application_errors_total.labels(
+            operation="create_order",
+        ).inc()
+
         database_connection.rollback()
         raise
+
     finally:
         database_connection.close()
 
@@ -164,7 +63,10 @@ def create_order(order: OrderCreate):
 
     try:
         channel = rabbitmq_connection.channel()
-        channel.queue_declare(queue="orders", durable=True)
+        channel.queue_declare(
+            queue="orders",
+            durable=True,
+        )
 
         channel.basic_publish(
             exchange="",
@@ -175,8 +77,17 @@ def create_order(order: OrderCreate):
                 content_type="application/json",
             ),
         )
+
+    except Exception:
+        application_errors_total.labels(
+            operation="publish_order",
+        ).inc()
+        raise
+
     finally:
         rabbitmq_connection.close()
+
+    get_redis_client().delete("orders:list")
 
     return OrderResponse(
         id=created_order[0],
@@ -187,8 +98,7 @@ def create_order(order: OrderCreate):
     )
 
 
-@app.get("/orders")
-def list_orders():
+def list_orders() -> dict:
     redis_client = get_redis_client()
     cached_orders = redis_client.get("orders:list")
 
@@ -217,6 +127,13 @@ def list_orders():
             )
 
             rows = cursor.fetchall()
+
+    except Exception:
+        application_errors_total.labels(
+            operation="list_orders",
+        ).inc()
+        raise
+
     finally:
         database_connection.close()
 

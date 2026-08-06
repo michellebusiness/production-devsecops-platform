@@ -1,0 +1,86 @@
+name: CI Security Build and Push
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: eu-central-1
+  API_REPOSITORY: production-devsecops-platform-dev-api
+  WORKER_REPOSITORY: production-devsecops-platform-dev-worker
+
+jobs:
+  build-scan-push:
+    name: Build Scan and Push
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api
+            context: ./apps/api
+            repository: production-devsecops-platform-dev-api
+
+          - service: worker
+            context: ./apps/worker
+            repository: production-devsecops-platform-dev-worker
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set image metadata
+        shell: bash
+        run: |
+          echo "LOCAL_IMAGE=${{ matrix.service }}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag "${LOCAL_IMAGE}" \
+            "${{ matrix.context }}"
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Configure AWS credentials with OIDC
+        if: github.event_name == 'push'
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
+        with:
+          role-to-assume: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          role-session-name: GitHubActions-${{ matrix.service }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        if: github.event_name == 'push'
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Tag and push image to ECR
+        if: github.event_name == 'push'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          REMOTE_IMAGE="${ECR_REGISTRY}/${{ matrix.repository }}:${IMAGE_TAG}"
+
+          docker tag "${LOCAL_IMAGE}" "${REMOTE_IMAGE}"
+          docker push "${REMOTE_IMAGE}"
+
+          echo "Published ${REMOTE_IMAGE}"

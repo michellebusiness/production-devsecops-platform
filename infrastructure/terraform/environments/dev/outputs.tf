@@ -46,3 +46,14 @@ output "eks_node_role_arn" {
   description = "ARN of the EKS worker node IAM role"
   value       = module.eks.node_role_arn
 }
+output "api_ecr_repository_url" {
+  value = module.ecr.api_repository_url
+}
+
+output "worker_ecr_repository_url" {
+  value = module.ecr.worker_repository_url
+}
+output "github_actions_role_arn" {
+  description = "IAM role assumed by GitHub Actions through OIDC"
+  value       = module.github_oidc.role_arn
+}

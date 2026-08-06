@@ -86,3 +86,14 @@ variable "eks_node_max_size" {
   type        = number
   default     = 3
 }
+variable "github_repository" {
+  description = "GitHub repository allowed to assume the deployment role"
+  type        = string
+  default     = "michellebusiness/production-devsecops-platform"
+}
+
+variable "github_branch" {
+  description = "GitHub branch allowed to assume the deployment role"
+  type        = string
+  default     = "main"
+}
