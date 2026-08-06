@@ -71,13 +71,19 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
+      - name: Show target AWS role
+        if: github.event_name == 'push'
+        run: |
+          echo "Target role: arn:aws:iam::771650096212:role/production-devsecops-platform-dev-github-actions"
+
       - name: Configure AWS credentials with GitHub OIDC
         if: github.event_name == 'push'
         uses: aws-actions/configure-aws-credentials@v6.2.2
         with:
-          role-to-assume: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::771650096212:role/production-devsecops-platform-dev-github-actions
           role-session-name: gha-${{ matrix.service }}-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: eu-central-1
+          audience: sts.amazonaws.com
           unset-current-credentials: true
 
       - name: Verify AWS identity
