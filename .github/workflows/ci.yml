@@ -80,11 +80,10 @@ jobs:
         if: github.event_name == 'push'
         uses: aws-actions/configure-aws-credentials@v6.2.2
         with:
-          role-to-assume: arn:aws:iam::771650096212:role/production-devsecops-platform-dev-github-actions
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
           role-session-name: gha-${{ matrix.service }}-${{ github.run_id }}
           aws-region: eu-central-1
           audience: sts.amazonaws.com
-          unset-current-credentials: true
 
       - name: Verify AWS identity
         if: github.event_name == 'push'
