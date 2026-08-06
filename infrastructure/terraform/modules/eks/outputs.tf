@@ -35,6 +35,26 @@ output "cluster_role_arn" {
 }
 
 output "node_role_arn" {
-  description = "ARN of the EKS node IAM role"
+  description = "ARN of the EKS worker node IAM role"
   value       = aws_iam_role.node.arn
+}
+
+output "eks_oidc_provider_arn" {
+  description = "ARN of the EKS OIDC provider used by IRSA"
+  value       = aws_iam_openid_connect_provider.eks.arn
+}
+
+output "ebs_csi_addon_name" {
+  description = "Name of the Amazon EBS CSI managed add-on"
+  value       = aws_eks_addon.ebs_csi_driver.addon_name
+}
+
+output "ebs_csi_addon_id" {
+  description = "ID of the Amazon EBS CSI managed add-on"
+  value       = aws_eks_addon.ebs_csi_driver.id
+}
+
+output "ebs_csi_role_arn" {
+  description = "IAM role ARN used by the EBS CSI controller"
+  value       = aws_iam_role.ebs_csi.arn
 }
