@@ -10,3 +10,4 @@ resources:
   - rabbitmq.yaml
   - api.yaml
   - worker.yaml
+  - servicemonitor.yaml

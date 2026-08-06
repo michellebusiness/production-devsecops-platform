@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: orders-api
+  namespace: production
+  labels:
+    app: orders-api
+spec:
+  selector:
+    matchLabels:
+      app: orders-api
+
+  namespaceSelector:
+    matchNames:
+      - production
+
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
