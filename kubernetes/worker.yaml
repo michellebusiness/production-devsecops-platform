@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-worker
+  namespace: production
+  labels:
+    app: orders-worker
+
+spec:
+  replicas: 2
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+
+  selector:
+    matchLabels:
+      app: orders-worker
+
+  template:
+    metadata:
+      labels:
+        app: orders-worker
+
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+
+      containers:
+        - name: orders-worker
+
+          image: 771650096212.dkr.ecr.eu-central-1.amazonaws.com/production-devsecops-platform-dev-worker:4847ef2f4d1bbeeb6efbfca9b529291a1f12b165
+
+          imagePullPolicy: Always
+
+          envFrom:
+            - configMapRef:
+                name: app-config
+
+            - secretRef:
+                name: app-secret
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+
+            limits:
+              cpu: 300m
+              memory: 384Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            readOnlyRootFilesystem: false
+
+            capabilities:
+              drop:
+                - ALL
