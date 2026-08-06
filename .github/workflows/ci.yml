@@ -15,16 +15,15 @@ permissions:
 
 env:
   AWS_REGION: eu-central-1
-  API_REPOSITORY: production-devsecops-platform-dev-api
-  WORKER_REPOSITORY: production-devsecops-platform-dev-worker
 
 jobs:
   build-scan-push:
-    name: Build Scan and Push
+    name: Build Scan and Push - ${{ matrix.service }}
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
+
       matrix:
         include:
           - service: api
@@ -37,21 +36,33 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
+
+      - name: Show workflow context
+        shell: bash
+        run: |
+          echo "Repository: ${GITHUB_REPOSITORY}"
+          echo "Repository owner: ${GITHUB_REPOSITORY_OWNER}"
+          echo "Ref: ${GITHUB_REF}"
+          echo "SHA: ${GITHUB_SHA}"
+          echo "Event: ${GITHUB_EVENT_NAME}"
+          echo "Service: ${{ matrix.service }}"
+          echo "ECR repository: ${{ matrix.repository }}"
 
       - name: Set image metadata
         shell: bash
         run: |
-          echo "LOCAL_IMAGE=${{ matrix.service }}:${GITHUB_SHA}" >> "$GITHUB_ENV"
           echo "IMAGE_TAG=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "LOCAL_IMAGE=${{ matrix.service }}:${GITHUB_SHA}" >> "$GITHUB_ENV"
 
       - name: Build Docker image
+        shell: bash
         run: |
           docker build \
             --tag "${LOCAL_IMAGE}" \
             "${{ matrix.context }}"
 
-      - name: Scan image with Trivy
+      - name: Scan Docker image with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.LOCAL_IMAGE }}
@@ -60,27 +71,58 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
-      - name: Configure AWS credentials with OIDC
+      - name: Configure AWS credentials with GitHub OIDC
         if: github.event_name == 'push'
-        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
+        uses: aws-actions/configure-aws-credentials@v6.2.2
         with:
           role-to-assume: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
-          role-session-name: GitHubActions-${{ matrix.service }}
+          role-session-name: gha-${{ matrix.service }}-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
+          unset-current-credentials: true
+
+      - name: Verify AWS identity
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          aws sts get-caller-identity
 
       - name: Log in to Amazon ECR
         if: github.event_name == 'push'
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@v2.1.5
 
-      - name: Tag and push image to ECR
+      - name: Tag Docker image
         if: github.event_name == 'push'
+        shell: bash
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           REMOTE_IMAGE="${ECR_REGISTRY}/${{ matrix.repository }}:${IMAGE_TAG}"
 
-          docker tag "${LOCAL_IMAGE}" "${REMOTE_IMAGE}"
+          docker tag \
+            "${LOCAL_IMAGE}" \
+            "${REMOTE_IMAGE}"
+
+          echo "REMOTE_IMAGE=${REMOTE_IMAGE}" >> "$GITHUB_ENV"
+
+      - name: Push Docker image to Amazon ECR
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
           docker push "${REMOTE_IMAGE}"
 
-          echo "Published ${REMOTE_IMAGE}"
+          echo "Published image:"
+          echo "${REMOTE_IMAGE}"
+
+      - name: Write job summary
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          {
+            echo "## Published Docker image"
+            echo ""
+            echo "- Service: \`${{ matrix.service }}\`"
+            echo "- Repository: \`${{ matrix.repository }}\`"
+            echo "- Tag: \`${IMAGE_TAG}\`"
+            echo "- Image: \`${REMOTE_IMAGE}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

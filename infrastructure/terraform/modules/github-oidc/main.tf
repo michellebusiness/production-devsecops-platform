@@ -38,16 +38,15 @@ data "aws_iam_policy_document" "github_assume_role" {
     }
 
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
 
       values = [
-        "repo:${var.github_repository}:ref:refs/heads/${var.github_branch}",
+        "repo:michellebusiness/production-devsecops-platform:*",
       ]
     }
   }
 }
-
 resource "aws_iam_role" "github_actions" {
   name               = "${local.resource_prefix}-github-actions"
   assume_role_policy = data.aws_iam_policy_document.github_assume_role.json
